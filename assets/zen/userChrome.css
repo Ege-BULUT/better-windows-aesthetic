@@ -1,0 +1,29 @@
+/*
+ * Transparent Zen (community edition): companion styles for the Zen Browser interface.
+ *
+ * Extensions cannot style the browser interface directly, so the extension sends the
+ * transparency level through the browser theme and these rules read it back.
+ * The opacity is stored in the red channel of --lwt-accent-color (0 = transparent, 255 = opaque).
+ *
+ * Required about:config preferences:
+ *   toolkit.legacyUserProfileCustomizations.stylesheets = true
+ *   zen.theme.disable-lightweight = false
+ *
+ * Install: copy this file into <profile folder>/chrome/userChrome.css and restart Zen.
+ * Only active while the extension uses the Transparent theme.
+ */
+:root[lwtheme] {
+  --tz-ui-alpha: rgb(from var(--lwt-accent-color) 0 0 0 / calc(r / 255));
+  --zen-colors-border: rgb(from var(--lwt-accent-color) 255 255 255 / calc(r / 255 * 0.25)) !important;
+
+  /* Drop the solid window color so the system backdrop (Mica or Acrylic) shows through */
+  & #zen-main-app-wrapper {
+    background: transparent !important;
+  }
+
+  /* Fade the Zen workspace gradient behind the sidebar, toolbar and page area */
+  & #zen-browser-background,
+  & #zen-toolbar-background {
+    mask-image: linear-gradient(var(--tz-ui-alpha), var(--tz-ui-alpha)) !important;
+  }
+}

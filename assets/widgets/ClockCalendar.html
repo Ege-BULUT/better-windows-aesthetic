@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="applicationTitle" content="Clock and Calendar">
+<meta name="windowSize" content="460, 640">
+<meta name="windowLocation" content="730, 80">
+<meta name="topMost" content="false">
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+  body { display: flex; flex-direction: column; align-items: center; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+         color: #fff; text-shadow: 0 2px 10px rgba(0, 0, 0, .6); }
+  #clock { height: 100px; margin-bottom: 180px; display: flex; align-items: center; justify-content: center; }
+  #time { font-size: 60px; font-weight: 200; line-height: 1; letter-spacing: 3px; font-variant-numeric: tabular-nums; }
+  #calendar { height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #month { font-size: 24px; font-weight: 600; margin-bottom: 12px; text-transform: capitalize; }
+  #grid { display: grid; grid-template-columns: repeat(7, 46px); grid-auto-rows: 40px; text-align: center; align-items: center; }
+  .head { font-size: 13px; font-weight: 600; opacity: .7; }
+  .day { font-size: 17px; justify-self: center; width: 36px; height: 36px; line-height: 36px; border-radius: 50%; }
+  .weekend { opacity: .75; }
+  .today { background: rgba(255, 255, 255, .9); color: #111; text-shadow: none; font-weight: 700; opacity: 1; }
+</style>
+</head>
+<body>
+<div id="clock"><div id="time"></div></div>
+<div id="calendar"><div id="month"></div><div id="grid"></div></div>
+<script>
+  const DAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
+  let shownDay = -1;
+  function renderCalendar(now) {
+    const year = now.getFullYear(), month = now.getMonth();
+    document.getElementById("month").textContent = now.toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
+    const grid = document.getElementById("grid");
+    grid.innerHTML = DAYS.map(d => `<div class="head">${d}</div>`).join("");
+    const offset = (new Date(year, month, 1).getDay() + 6) % 7; // Monday first
+    const days = new Date(year, month + 1, 0).getDate();
+    for (let i = 0; i < offset; i++) grid.insertAdjacentHTML("beforeend", "<div></div>");
+    for (let d = 1; d <= days; d++) {
+      const col = (offset + d - 1) % 7;
+      const cls = ["day", col >= 5 ? "weekend" : "", d === now.getDate() ? "today" : ""].join(" ");
+      grid.insertAdjacentHTML("beforeend", `<div class="${cls}">${d}</div>`);
+    }
+  }
+  function tick() {
+    const now = new Date();
+    document.getElementById("time").textContent = now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+    if (now.getDate() !== shownDay) { shownDay = now.getDate(); renderCalendar(now); }
+    setTimeout(tick, 1000 - now.getMilliseconds());
+  }
+  tick();
+</script>
+</body>
+</html>
