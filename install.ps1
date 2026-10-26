@@ -14,9 +14,15 @@ $Downloads = Join-Path $env:TEMP 'better-windows-aesthetic'
 New-Item -ItemType Directory -Force $Downloads | Out-Null
 Start-Transcript -Append -Path (Join-Path $env:TEMP 'better-windows-aesthetic.log') | Out-Null
 
-function Get-File($url, $name) {
+function Get-File($url, $name, $size, $sha256) {
     $path = Join-Path $Downloads $name
-    Write-Host "Downloading $url" # not Write-Output: that would become part of the return value
+    # Downloads stay in %TEMP% between runs: a file with the expected size (and SHA-256 when known) is reused
+    if ((Test-Path $path) -and (Get-Item $path).Length -eq $size -and
+        (-not $sha256 -or (Get-FileHash $path -Algorithm SHA256).Hash -eq $sha256)) {
+        Write-Host "Using downloaded $path" # not Write-Output: that would become part of the return value
+        return $path
+    }
+    Write-Host "Downloading $url"
     Invoke-WebRequest -Uri $url -OutFile $path -UseBasicParsing
     $path
 }
@@ -25,7 +31,13 @@ function Get-GitHubAsset($repo, $pattern) {
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -UseBasicParsing
     $asset = $release.assets | Where-Object name -match $pattern | Select-Object -First 1
     if (-not $asset) { throw "No asset matching '$pattern' in $repo $($release.tag_name)" }
-    Get-File $asset.browser_download_url $asset.name
+    $sha256 = if ($asset.digest -match '^sha256:(.+)$') { $Matches[1] }
+    Get-File $asset.browser_download_url $asset.name $asset.size $sha256
+}
+
+function Test-Installed($exe) {
+    if (Test-Path $exe) { Write-Host "Already installed, skipping its installer: $exe"; return $true }
+    $false
 }
 
 function Set-Autostart($name, $command) {
@@ -50,17 +62,27 @@ switch ($Step) {
     }
 
     'translucenttb' {
+        # The Microsoft Store version keeps its settings in its package folder and watches the file
+        $store = Get-AppxPackage -Name '*TranslucentTB*' | Select-Object -First 1
+        if ($store) {
+            Write-Host "Store version installed, applying settings only: $($store.PackageFullName)"
+            $state = Join-Path $env:LOCALAPPDATA "Packages\$($store.PackageFamilyName)\RoamingState"
+            New-Item -ItemType Directory -Force $state | Out-Null
+            Copy-Item (Join-Path $Assets 'translucenttb\settings.json') $state -Force
+            break
+        }
         $dir = Join-Path $env:LOCALAPPDATA 'Programs\TranslucentTB'
+        $exe = Join-Path $dir 'TranslucentTB.exe'
         Get-Process TranslucentTB -ErrorAction SilentlyContinue | Stop-Process -Force
-        Expand-Archive -Path (Get-GitHubAsset 'TranslucentTB/TranslucentTB' '^TranslucentTB-portable-x64\.zip$') -DestinationPath $dir -Force
+        if (-not (Test-Installed $exe)) { Expand-Archive -Path (Get-GitHubAsset 'TranslucentTB/TranslucentTB' '^TranslucentTB-portable-x64\.zip$') -DestinationPath $dir -Force }
         # The portable build reads settings.json next to its exe
         Copy-Item (Join-Path $Assets 'translucenttb\settings.json') $dir -Force
-        $exe = Join-Path $dir 'TranslucentTB.exe'
         Set-Autostart 'TranslucentTB' "`"$exe`""
         Start-Process $exe
     }
 
     'lively-install' {
+        if (Test-Installed (Join-Path $env:ProgramFiles 'Lively Wallpaper\Lively.exe')) { break }
         $setup = Get-GitHubAsset 'rocksdanister/lively' '^lively_setup_x86_full_.*\.exe$'
         Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
     }
@@ -72,14 +94,16 @@ switch ($Step) {
         if (-not (Get-Process Lively -ErrorAction SilentlyContinue)) { Start-Process $exe }
         Wait-Until 30 { Get-Process Lively -ErrorAction SilentlyContinue } | Out-Null
         Start-Sleep -Seconds 10 # let Lively finish starting before it accepts commands
-        $videos = [Environment]::GetFolderPath('MyVideos')
-        $video = Join-Path $videos 'windows-xp-bliss-night.mp4'
         # Downloaded from its publisher instead of being redistributed in this repo
-        Invoke-WebRequest -Uri 'https://cdn.livelywallpaper.app/wallpapers/windows-xp-bliss-night/download.mp4' -OutFile $video -UseBasicParsing
+        $url = 'https://cdn.livelywallpaper.app/wallpapers/windows-xp-bliss-night/download.mp4'
+        $size = [long](Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing).Headers['Content-Length']
+        $video = Join-Path ([Environment]::GetFolderPath('MyVideos')) 'windows-xp-bliss-night.mp4'
+        Copy-Item (Get-File $url 'windows-xp-bliss-night.mp4' $size) $video -Force
         Start-Process $exe -ArgumentList 'setwp', '--file', "`"$video`"" -Wait
     }
 
     'zen-install' {
+        if (Test-Installed (Join-Path $env:ProgramFiles 'Zen Browser\zen.exe')) { break }
         $setup = Get-GitHubAsset 'zen-browser/desktop' '^zen\.installer\.exe$'
         Start-Process $setup -ArgumentList '/S' -Wait
     }
@@ -120,9 +144,11 @@ switch ($Step) {
 
     'widgets' {
         Get-Process WinWidgets -ErrorAction SilentlyContinue | Stop-Process -Force
-        $setup = Get-GitHubAsset 'beyluta/WinWidgets' '_Installer\.exe$'
-        Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER' -Wait
         $exe = Join-Path $env:LOCALAPPDATA 'Programs\WinWidgets\WinWidgets.exe'
+        if (-not (Test-Installed $exe)) {
+            $setup = Get-GitHubAsset 'beyluta/WinWidgets' '_Installer\.exe$'
+            Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER' -Wait
+        }
         if (-not (Test-Path $exe)) { throw "WinWidgets is not installed: $exe" }
 
         $dir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Widgets'
@@ -143,6 +169,8 @@ switch ($Step) {
     }
 
     'flow' {
+        # Squirrel installs per user into %LOCALAPPDATA%\FlowLauncher
+        if (Test-Installed (Join-Path $env:LOCALAPPDATA 'FlowLauncher\Flow.Launcher.exe')) { break }
         $setup = Get-GitHubAsset 'Flow-Launcher/Flow.Launcher' '^Flow-Launcher-Setup\.exe$'
         Start-Process $setup -ArgumentList '--silent' -Wait
     }
