@@ -16,7 +16,7 @@ Start-Transcript -Append -Path (Join-Path $env:TEMP 'better-windows-aesthetic.lo
 
 function Get-File($url, $name) {
     $path = Join-Path $Downloads $name
-    Write-Output "Downloading $url"
+    Write-Host "Downloading $url" # not Write-Output: that would become part of the return value
     Invoke-WebRequest -Uri $url -OutFile $path -UseBasicParsing
     $path
 }
